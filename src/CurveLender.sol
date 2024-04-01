@@ -9,22 +9,22 @@ import {IStaking} from "./interfaces/CurveInterfaces.sol";
 contract CurveLender is Base4626Compounder, TradeFactorySwapper {
     using SafeERC20 for ERC20;
 
-    // address of the Curve gauge
-    IStaking public immutable staking;
+    IStaking public immutable staking; // address of the Curve gauge
+    address public immutable GOV; //yearn governance
 
     /**
-     * @dev Vault must match stakingToken for the staking pool.
+     * @dev Vault must match lp_token() for the staking pool.
      * @param _asset Underlying asset to use for this strategy.
      * @param _name Name to use for this strategy.
      * @param _vault ERC4626 vault token to use.
      * @param _staking Staking pool to use.
      */
-    constructor(address _asset, string memory _name, address _vault, address _staking)
+    constructor(address _asset, string memory _name, address _vault, address _staking, address _GOV)
         Base4626Compounder(_asset, _name, _vault)
     {
         staking = IStaking(_staking);
-
         require(_vault == staking.lp_token(), "token mismatch");
+        GOV = _GOV;
 
         ERC20(_vault).safeApprove(_staking, type(uint256).max);
     }
@@ -56,25 +56,8 @@ contract CurveLender is Base4626Compounder, TradeFactorySwapper {
 
     /* ========== TRADE FACTORY FUNCTIONS ========== */
 
-    /**
-     * @notice Use to manually claim rewards from our staking contract.
-     * @dev Can only be called by management. Mostly helpful to make life easier for trade factory.
-     */
-    function manualRewardsClaim() external onlyManagement {
-        _claimRewards();
-    }
-
     function _claimRewards() internal override {
         staking.claim_rewards();
-    }
-
-    /**
-     * @notice Use to update our trade factory.
-     * @dev Can only be called by management.
-     * @param _tradeFactory Address of new trade factory.
-     */
-    function setTradeFactory(address _tradeFactory) external onlyManagement {
-        _setTradeFactory(_tradeFactory, address(asset));
     }
 
     /**
@@ -93,5 +76,30 @@ contract CurveLender is Base4626Compounder, TradeFactorySwapper {
      */
     function removeToken(address _token) external onlyManagement {
         _removeToken(_token, address(asset));
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                GOVERNANCE:
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+     * @notice Use to update our trade factory.
+     * @dev Can only be called by governance.
+     * @param _tradeFactory Address of new trade factory.
+     */
+    function setTradeFactory(address _tradeFactory) external onlyGovernance {
+        _setTradeFactory(_tradeFactory, address(asset));
+    }
+
+    /// @notice Sweep of non-asset ERC20 tokens to governance (onlyGovernance)
+    /// @param _token The ERC20 token to sweep
+    function sweep(address _token) external onlyGovernance {
+        require(_token != address(asset), "!asset");
+        ERC20(_token).safeTransfer(GOV, ERC20(_token).balanceOf(address(this)));
+    }
+
+    modifier onlyGovernance() {
+        require(msg.sender == GOV, "!gov");
+        _;
     }
 }

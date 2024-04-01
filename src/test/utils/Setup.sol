@@ -5,7 +5,9 @@ import "forge-std/console.sol";
 import {ExtendedTest} from "./ExtendedTest.sol";
 
 import {CurveLender, ERC20} from "../../CurveLender.sol";
+import {CurveLenderFactory} from "../../CurveLenderFactory.sol";
 import {IStrategyInterface} from "../../interfaces/IStrategyInterface.sol";
+import {IStrategyFactoryInterface} from "../../interfaces/IStrategyFactoryInterface.sol";
 
 // Inherit the events so they can be checked if desired.
 import {IEvents} from "@tokenized-strategy/interfaces/IEvents.sol";
@@ -22,11 +24,11 @@ contract Setup is ExtendedTest, IEvents {
     // Contract instances that we will use repeatedly.
     ERC20 public asset;
     IStrategyInterface public strategy;
+    IStrategyFactoryInterface public strategyFactory;
     address curveLendVault;
-    address liquidityGauge;
-    // address base;
-    // uint24 feeBaseToAsset;
-    // address GOV;
+    address gauge;
+    address emergencyAdmin;
+    address GOV;
 
     mapping(string => address) public tokenAddrs;
 
@@ -55,19 +57,42 @@ contract Setup is ExtendedTest, IEvents {
 
         // Set asset
         asset = ERC20(tokenAddrs["CRVUSD"]);
-        curveLendVault = 0xCeA18a8752bb7e7817F9AE7565328FE415C0f2cA; // Mainnet crv/crvUSD
-        liquidityGauge = 0x49887dF6fE905663CDB46c616BfBfBB50e85a265; 
 
-        // base = tokenAddrs["USDC"]; // USDC usually the best base to swap to crvUSD
-        // // (0.01% = 100, 0.05% = 500, 0.3% = 3000, 1% = 10000)
-        // feeBaseToAsset = 500; // USDC-->crvUSD is 0.05% tier
-        // GOV = 0xFEB4acf3df3cDEA7399794D0869ef76A6EfAff52; // Mainnet yearn governance
+        //https://etherscan.io/address/0xeA6876DDE9e3467564acBeE1Ed5bac88783205E0#readContract --> gauges -->
+
+        //0
+        curveLendVault = 0x8cf1DE26729cfB7137AF1A6B2a665e099EC319b5; //Mainnet wstETH/crvUSD
+        gauge = 0x222D910ef37C06774E1eDB9DC9459664f73776f0; //Mainnet wstETH/crvUSD //0
+
+        //1
+        //curveLendVault = 0x5AE28c9197a4a6570216fC7e53E7e0221D7A0FEF;
+        //gauge = 0x1Cfabd1937e75E40Fa06B650CB0C8CD233D65C20; //Mainnet WETH/crvUSD //1
+
+        //2
+        //curveLendVault = 0xb2b23C87a4B6d1b03Ba603F7C3EB9A81fDC0AAC9;
+        //gauge = 0x41eBf0bEC45642A675e8b7536A2cE9c078A814B4; //Mainnet WBTCt/crvUSD //2
+
+        //3
+        //curveLendVault = 0xCeA18a8752bb7e7817F9AE7565328FE415C0f2cA; // Mainnet CRV/crvUSD
+        //gauge = 0x49887dF6fE905663CDB46c616BfBfBB50e85a265;  //CRV/crvUSD
+
+
+
+        GOV = management;
+        emergencyAdmin = management;
 
         // Set decimals
         decimals = asset.decimals();
 
+        strategyFactory = setUpStrategyFactory();
+
         // Deploy strategy and set variables
-        strategy = IStrategyInterface(setUpStrategy());
+        vm.prank(management);
+        strategy = IStrategyInterface(strategyFactory.newCurveLender(address(asset), "Strategy", curveLendVault, gauge));
+        setUpStrategy();
+
+        // Deploy strategy and set variables
+        //strategy = IStrategyInterface(setUpStrategy());
 
         factory = strategy.FACTORY();
 
@@ -80,27 +105,31 @@ contract Setup is ExtendedTest, IEvents {
         vm.label(performanceFeeRecipient, "performanceFeeRecipient");
     }
 
-
-    function setUpStrategy() public returns (address) {
-        // we save the strategy as a IStrategyInterface to give it the needed interface
-        IStrategyInterface _strategy = IStrategyInterface(
-            address(new CurveLender(address(asset), "Tokenized Strategy", curveLendVault, liquidityGauge))
+    function setUpStrategyFactory() public returns (IStrategyFactoryInterface) {
+        vm.prank(management);
+        IStrategyFactoryInterface _factory = IStrategyFactoryInterface(
+            address(
+                new CurveLenderFactory(
+                    management,
+                    performanceFeeRecipient,
+                    keeper,
+                    emergencyAdmin,
+                    GOV
+                )
+            )
         );
+        return _factory;
+    }
 
+    function setUpStrategy() public {
+        vm.startPrank(management);
+        strategy.acceptManagement();
         // set keeper
-        _strategy.setKeeper(keeper);
+        strategy.setKeeper(keeper);
         // set treasury
-        _strategy.setPerformanceFeeRecipient(performanceFeeRecipient);
-        // set management of the strategy
-        _strategy.setPendingManagement(management);
-
-        vm.prank(management);
-        _strategy.acceptManagement();
-
-        vm.prank(management);
-        _strategy.setProfitLimitRatio(60_000);
-
-        return address(_strategy);
+        strategy.setPerformanceFeeRecipient(performanceFeeRecipient);
+        strategy.setProfitLimitRatio(60_000);
+        vm.stopPrank();
     }
 
     function depositIntoStrategy(

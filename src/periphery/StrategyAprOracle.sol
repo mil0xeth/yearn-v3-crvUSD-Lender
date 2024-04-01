@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 pragma solidity 0.8.18;
-
+import "forge-std/console.sol";
 import {AprOracleBase} from "@periphery/AprOracle/AprOracleBase.sol";
 
 interface IStrategy {
@@ -54,16 +54,19 @@ contract StrategyAprOracle is AprOracleBase {
         
         // native supply yield
         uint256 futureRate = monetaryPolicy.future_rate(address(controller), _delta, 0);        
+        console.log("futureRate: ", futureRate);
         uint256 lendingAPR = futureRate * secondsInOneYear * controller.total_debt() / curveVault.totalAssets();
 
         // gauge rewards (crv)
         address liquidityGauge = strategy.staking();
         (,,,uint256 rate,,) = ILiquidityGauge(liquidityGauge).reward_data(CRV);
+        console.log("rate: ", rate);
 
         uint256 rewardYield;
         uint256 totalSupply = ILiquidityGauge(liquidityGauge).totalSupply();
         if (_delta >= 0) {
             rewardYield = secondsInOneYear * rate * WAD / ( totalSupply + uint256(_delta) );
+            console.log("rewardYield: ", rewardYield);
         } else if (uint256(_delta) < totalSupply) {
             rewardYield = secondsInOneYear * rate * WAD / ( totalSupply - uint256(_delta) );
         } else {
@@ -72,10 +75,15 @@ contract StrategyAprOracle is AprOracleBase {
         
         // pricing: reward to CRVUSD
         (, int256 price, , , ) = IChainlink(chainlinkCRVvsUSD).latestRoundData();
+        console.log("price: ", uint256(price));
         uint256 USDyield = rewardYield * uint256(price) / 1e8; // convert reward to USD
+        console.log("USDyield: ", USDyield);
         (, price, , , ) = IChainlink(chainlinkCRVUSDvsUSD).latestRoundData();
+        console.log("price: ", uint256(price));
         uint256 gaugeAPR = USDyield * WAD / (uint256(price) * 1e10); // convert USD to CRVUSD
 
+        console.log("lendingAPR: ", lendingAPR);
+        console.log("gaugeAPR: ", gaugeAPR);
         // return total of lending yields + gauge rewards
         return lendingAPR + gaugeAPR;
     }

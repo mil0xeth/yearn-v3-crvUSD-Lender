@@ -59,5 +59,8 @@ contract OracleTest is Setup {
         checkOracle(address(strategy), _delta);
     }
 
-    // TODO: Deploy multiple strategies with different tokens as `asset` to test against the oracle.
+    function test_displayAPR() public {
+        uint256 apr = oracle.aprAfterDebtChange(address(strategy), 0);
+        console.log("------- TOTAL APR: ", apr);
+    }
 }
