@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 pragma solidity 0.8.18;
-import "forge-std/console.sol";
+
 import {BaseHealthCheck, ERC20} from "@periphery/Bases/HealthCheck/BaseHealthCheck.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {TradeFactorySwapper} from "@periphery/swappers/TradeFactorySwapper.sol";
@@ -48,21 +48,13 @@ contract CurveLender is BaseHealthCheck, TradeFactorySwapper {
     }
 
     function _deployFunds(uint256 _amount) internal override {
-        console.log("_deployFunds");
         IConvexDeposit(convexDepositContract).deposit(PID, ICurveLend(curveLendVault).deposit(_amount), true); // deposit & stake
-        console.log("_deployFunds done");
     }
 
     function _freeFunds(uint256 _amount) internal override {
-        console.log("_freefunds _amount: ", _amount);
-        console.log("asset.balanceOf(address(this): ", asset.balanceOf(address(this)));
         uint256 shares = ICurveLend(curveLendVault).convertToShares(_amount);
-        console.log("shares: ", shares);
         IConvexRewards(convexRewardsContract).withdrawAndUnwrap(shares, true);
-        console.log("asset.balanceOf(address(this): ", asset.balanceOf(address(this)));
-        //IConvexDeposit(convexDepositContract).withdraw(PID, shares); // unstake
         ICurveLend(curveLendVault).redeem(shares); // redeem
-        console.log("asset.balanceOf(address(this): ", asset.balanceOf(address(this)));
     }
 
     function _harvestAndReport()
@@ -76,8 +68,6 @@ contract CurveLender is BaseHealthCheck, TradeFactorySwapper {
                 _deployFunds(assetBalance);
             }
         }
-        console.log("stakedBalance", stakedBalance());
-        console.log("ICurveLend(curveLendVault).convertToAssets(stakedBalance()", ICurveLend(curveLendVault).convertToAssets(stakedBalance()));
         _totalAssets = asset.balanceOf(address(this)) + ICurveLend(curveLendVault).convertToAssets(stakedBalance());
     }
 
