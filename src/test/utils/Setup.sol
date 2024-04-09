@@ -26,9 +26,12 @@ contract Setup is ExtendedTest, IEvents {
     IStrategyInterface public strategy;
     IStrategyFactoryInterface public strategyFactory;
     address curveLendVault;
+    address convexDepositContract;
     address gauge;
     address emergencyAdmin;
     address GOV;
+
+    uint256 PID;
 
     mapping(string => address) public tokenAddrs;
 
@@ -62,6 +65,8 @@ contract Setup is ExtendedTest, IEvents {
 
         //0
         curveLendVault = 0x8cf1DE26729cfB7137AF1A6B2a665e099EC319b5; //Mainnet wstETH/crvUSD
+        convexDepositContract = 0xF403C135812408BFbE8713b5A23a04b3D48AAE31; //https://curve.convexfinance.com/stake --> INFO --> Deposit contract address
+        PID = 327; //https://curve.convexfinance.com/stake --> INFO -->  Convex pool id
         gauge = 0x222D910ef37C06774E1eDB9DC9459664f73776f0; //Mainnet wstETH/crvUSD //0
 
         //1
@@ -88,7 +93,7 @@ contract Setup is ExtendedTest, IEvents {
 
         // Deploy strategy and set variables
         vm.prank(management);
-        strategy = IStrategyInterface(strategyFactory.newCurveLender(address(asset), "Strategy", curveLendVault, gauge));
+        strategy = IStrategyInterface(strategyFactory.newCurveLender(address(asset), "Strategy", convexDepositContract, PID));
         setUpStrategy();
 
         // Deploy strategy and set variables
@@ -129,6 +134,7 @@ contract Setup is ExtendedTest, IEvents {
         // set treasury
         strategy.setPerformanceFeeRecipient(performanceFeeRecipient);
         strategy.setProfitLimitRatio(60_000);
+        //strategy.setDoHealthCheck(false);
         vm.stopPrank();
     }
 

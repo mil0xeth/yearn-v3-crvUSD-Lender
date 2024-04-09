@@ -5,8 +5,8 @@ interface IStrategyFactoryInterface {
     function newCurveLender(
         address _asset,
         string memory _name, 
-        address _vault, 
-        address _staking
+        address _convexDepositContract, 
+        uint256 _PID
     ) external returns (address);
 
     function management() external view returns (address);

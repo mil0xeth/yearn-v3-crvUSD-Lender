@@ -4,8 +4,9 @@ import "forge-std/console.sol";
 import {AprOracleBase} from "@periphery/AprOracle/AprOracleBase.sol";
 
 interface IStrategy {
-    function vault() external view returns (address);
-    function staking() external view returns (address);
+    function curveLendVault() external view returns (address);
+    function PID() external view returns (uint256);
+    function totalAssets() external view returns (uint256);
 }
 
 interface ICurveVault {
@@ -13,26 +14,20 @@ interface ICurveVault {
     function totalAssets() external view returns (uint256);
 }
 
-interface IController {
-    function monetary_policy() external view returns (address);
-    function total_debt() external view returns (uint256);
-}
-
-interface IMonetaryPolicy {
-    function future_rate(address, int256, int256) external view returns (uint256);
-}
-
-interface ILiquidityGauge {
-    function reward_data(address) external view returns (address token, address distributor, uint256 period_finish, uint256 rate, uint256 last_update, uint256 integral);
-    function totalSupply() external view returns (uint256);
-}
-
 interface IChainlink {
     function latestRoundData() external view returns (uint80, int256, uint256, uint256, uint80);
 }
 
+interface IPoolUtilities {
+    function rewardRates(uint256 _PID) external view returns (address[] memory tokens, uint256[] memory rates);
+    function apr(uint256 _rate, uint256 _priceOfReward, uint256 _priceOfDeposit) external view returns (uint256);
+}
+
 contract StrategyAprOracle is AprOracleBase {
+    address public constant poolUtilities = 0x5Fba69a794F395184b5760DAf1134028608e5Cd1; //Mainnet
     address internal constant CRV = 0xD533a949740bb3306d119CC777fa900bA034cd52; // hardcoded for now
+    address internal constant CVX = 0x4e3FBD56CD56c3e72c1403e103b45Db9da5B9D2B; // hardcoded for now
+    address public constant chainlinkCVXvsUSD = 0xd962fC30A72A84cE50161031391756Bf2876Af5D;
     address public immutable chainlinkCRVUSDvsUSD;
     address public immutable chainlinkCRVvsUSD;
     uint256 internal constant WAD = 1e18;
@@ -46,45 +41,40 @@ contract StrategyAprOracle is AprOracleBase {
     function aprAfterDebtChange(
         address _strategy,
         int256 _delta
-    ) external view override returns (uint256 apr) {
+    ) external view override returns (uint256) {
         IStrategy strategy = IStrategy(_strategy);
-        ICurveVault curveVault = ICurveVault(strategy.vault());
-        IController controller = IController(curveVault.controller());
-        IMonetaryPolicy monetaryPolicy = IMonetaryPolicy(controller.monetary_policy());
-        
-        // native supply yield
-        uint256 futureRate = monetaryPolicy.future_rate(address(controller), _delta, 0);        
-        console.log("futureRate: ", futureRate);
-        uint256 lendingAPR = futureRate * secondsInOneYear * controller.total_debt() / curveVault.totalAssets();
+        (address[] memory tokens, uint256[] memory rates) = IPoolUtilities(poolUtilities).rewardRates(strategy.PID());
+        uint256 length = tokens.length;
+        require(length == rates.length, "length mismatch");
 
-        // gauge rewards (crv)
-        address liquidityGauge = strategy.staking();
-        (,,,uint256 rate,,) = ILiquidityGauge(liquidityGauge).reward_data(CRV);
-        console.log("rate: ", rate);
-
-        uint256 rewardYield;
-        uint256 totalSupply = ILiquidityGauge(liquidityGauge).totalSupply();
-        if (_delta >= 0) {
-            rewardYield = secondsInOneYear * rate * WAD / ( totalSupply + uint256(_delta) );
-            console.log("rewardYield: ", rewardYield);
-        } else if (uint256(_delta) < totalSupply) {
-            rewardYield = secondsInOneYear * rate * WAD / ( totalSupply - uint256(_delta) );
-        } else {
-            rewardYield = 0; // @todo: check
+        uint256 totalApr;
+        address currentReward;
+        int256 priceReward;
+        int256 priceCRVUSD;
+        uint256 apr;
+        for (uint256 i; i < length; ++i) {
+            currentReward = tokens[i];
+            if (currentReward == CRV) {
+                (, priceReward, , , ) = IChainlink(chainlinkCRVvsUSD).latestRoundData();
+                console.log("priceReward CRV: ", uint256(priceReward));
+                (, priceCRVUSD, , , ) = IChainlink(chainlinkCRVUSDvsUSD).latestRoundData();
+                console.log("priceCRVUSD: ", uint256(priceCRVUSD));
+                apr = IPoolUtilities(poolUtilities).apr(rates[i], uint256(priceReward), uint256(priceCRVUSD));
+                console.log("apr: ", apr);
+                totalApr += apr;
+            } else if (currentReward == CVX) {
+                (, priceReward, , , ) = IChainlink(chainlinkCVXvsUSD).latestRoundData();
+                console.log("priceReward CVX: ", uint256(priceReward));
+                (, priceCRVUSD, , , ) = IChainlink(chainlinkCRVUSDvsUSD).latestRoundData();
+                console.log("priceCRVUSD: ", uint256(priceCRVUSD));
+                apr = IPoolUtilities(poolUtilities).apr(rates[i], uint256(priceReward), uint256(priceCRVUSD));
+                console.log("apr: ", apr);
+                totalApr += apr;
+            } else {
+                console.log("OTHER REWARD!");
+            }
         }
-        
-        // pricing: reward to CRVUSD
-        (, int256 price, , , ) = IChainlink(chainlinkCRVvsUSD).latestRoundData();
-        console.log("price: ", uint256(price));
-        uint256 USDyield = rewardYield * uint256(price) / 1e8; // convert reward to USD
-        console.log("USDyield: ", USDyield);
-        (, price, , , ) = IChainlink(chainlinkCRVUSDvsUSD).latestRoundData();
-        console.log("price: ", uint256(price));
-        uint256 gaugeAPR = USDyield * WAD / (uint256(price) * 1e10); // convert USD to CRVUSD
-
-        console.log("lendingAPR: ", lendingAPR);
-        console.log("gaugeAPR: ", gaugeAPR);
-        // return total of lending yields + gauge rewards
-        return lendingAPR + gaugeAPR;
+        console.log("totalApr", totalApr);
+        return totalApr;
     }
 }

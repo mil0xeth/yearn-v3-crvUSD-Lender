@@ -1,63 +1,102 @@
 // SPDX-License-Identifier: AGPL-3.0
 pragma solidity 0.8.18;
-
-import {Base4626Compounder, ERC20, SafeERC20} from "@periphery/Bases/4626Compounder/Base4626Compounder.sol";
+import "forge-std/console.sol";
+import {BaseHealthCheck, ERC20} from "@periphery/Bases/HealthCheck/BaseHealthCheck.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {TradeFactorySwapper} from "@periphery/swappers/TradeFactorySwapper.sol";
 
-import {IStaking} from "./interfaces/CurveInterfaces.sol";
+interface ICurveLend {
+    function asset() external view returns (address);
+    function deposit(uint256) external returns (uint256);
+    function withdraw(uint256) external;
+    function redeem(uint256) external;
+    function maxDeposit(address) external view returns (uint256);
+    function maxWithdraw(address) external view returns (uint256);
+    function convertToShares(uint256) external view returns (uint256);
+    function convertToAssets(uint256) external view returns (uint256);
+    }
 
-contract CurveLender is Base4626Compounder, TradeFactorySwapper {
+interface IConvexDeposit {
+    function poolInfo(uint256 _PID) external view returns (address, address, address, address, address, bool);
+    function deposit(uint256 _PID, uint256 _amount, bool _stake) external;
+    function withdraw(uint256 _PID, uint256 _amount) external;
+    }
+
+interface IConvexRewards {
+    function earned(address) external view returns (uint256);
+    function getReward(address, bool) external;
+    function withdrawAndUnwrap(uint256, bool) external;
+    }
+
+contract CurveLender is BaseHealthCheck, TradeFactorySwapper {
     using SafeERC20 for ERC20;
 
-    IStaking public immutable staking; // address of the Curve gauge
-    address public immutable GOV; //yearn governance
+    address public immutable curveLendVault;
+    address public immutable convexDepositContract;
+    address public immutable convexRewardsContract;
+    uint256 public immutable PID;
+    address public immutable GOV;
 
-    /**
-     * @dev Vault must match lp_token() for the staking pool.
-     * @param _asset Underlying asset to use for this strategy.
-     * @param _name Name to use for this strategy.
-     * @param _vault ERC4626 vault token to use.
-     * @param _staking Staking pool to use.
-     */
-    constructor(address _asset, string memory _name, address _vault, address _staking, address _GOV)
-        Base4626Compounder(_asset, _name, _vault)
-    {
-        staking = IStaking(_staking);
-        require(_vault == staking.lp_token(), "token mismatch");
+    constructor(address _asset, string memory _name, address _convexDepositContract, uint256 _PID, address _GOV) BaseHealthCheck(_asset, _name) {
+        convexDepositContract = _convexDepositContract;
+        PID = _PID;
+        (curveLendVault, , , convexRewardsContract, , ) = IConvexDeposit(_convexDepositContract).poolInfo(_PID);
         GOV = _GOV;
 
-        ERC20(_vault).safeApprove(_staking, type(uint256).max);
+        asset.safeApprove(curveLendVault, type(uint256).max);
+        ERC20(curveLendVault).safeApprove(_convexDepositContract, type(uint256).max);
     }
 
-    /* ========== BASE4626 FUNCTIONS ========== */
-
-    /**
-     * @notice Balance of vault tokens staked in the staking contract
-     */
-    function balanceOfStake() public view virtual override returns (uint256) {
-        return staking.balanceOf(address(this));
+    function _deployFunds(uint256 _amount) internal override {
+        console.log("_deployFunds");
+        IConvexDeposit(convexDepositContract).deposit(PID, ICurveLend(curveLendVault).deposit(_amount), true); // deposit & stake
+        console.log("_deployFunds done");
     }
 
-    function _stake() internal override {
-        staking.deposit(balanceOfVault());
+    function _freeFunds(uint256 _amount) internal override {
+        console.log("_freefunds _amount: ", _amount);
+        console.log("asset.balanceOf(address(this): ", asset.balanceOf(address(this)));
+        uint256 shares = ICurveLend(curveLendVault).convertToShares(_amount);
+        console.log("shares: ", shares);
+        IConvexRewards(convexRewardsContract).withdrawAndUnwrap(shares, true);
+        console.log("asset.balanceOf(address(this): ", asset.balanceOf(address(this)));
+        //IConvexDeposit(convexDepositContract).withdraw(PID, shares); // unstake
+        ICurveLend(curveLendVault).redeem(shares); // redeem
+        console.log("asset.balanceOf(address(this): ", asset.balanceOf(address(this)));
     }
 
-    function _unStake(uint256 _amount) internal virtual override {
-        staking.withdraw(_amount);
-    }
-
-    function vaultsMaxWithdraw() public view virtual override returns (uint256) {
-        return vault.convertToAssets(vault.maxRedeem(address(staking)));
+    function _harvestAndReport()
+        internal
+        override
+        returns (uint256 _totalAssets)
+    {
+        if (!TokenizedStrategy.isShutdown()) {
+            uint256 assetBalance = asset.balanceOf(address(this));
+            if (assetBalance > 0) {
+                _deployFunds(assetBalance);
+            }
+        }
+        console.log("stakedBalance", stakedBalance());
+        console.log("ICurveLend(curveLendVault).convertToAssets(stakedBalance()", ICurveLend(curveLendVault).convertToAssets(stakedBalance()));
+        _totalAssets = asset.balanceOf(address(this)) + ICurveLend(curveLendVault).convertToAssets(stakedBalance());
     }
 
     function availableDepositLimit(address /*_owner*/) public view virtual override returns (uint256) {
-        return vault.maxDeposit(address(this));
+        return ICurveLend(curveLendVault).maxDeposit(address(this));
+    }
+
+    function stakedBalance() public view returns (uint256) {
+        return ERC20(convexRewardsContract).balanceOf(address(this));
+    }
+
+    function claimableBalance() public view returns (uint256) {
+        return IConvexRewards(convexRewardsContract).earned(address(this));
     }
 
     /* ========== TRADE FACTORY FUNCTIONS ========== */
 
     function _claimRewards() internal override {
-        staking.claim_rewards();
+        IConvexRewards(convexRewardsContract).getReward(address(this), true);
     }
 
     /**

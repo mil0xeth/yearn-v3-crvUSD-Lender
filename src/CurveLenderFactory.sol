@@ -14,7 +14,7 @@ contract CurveLenderFactory {
     address public immutable emergencyAdmin;
     address internal immutable GOV;
 
-    mapping(address => address) public marketVaultToStrategy;
+    mapping(uint256 => address) public PIDtoStrategy;
 
     constructor(
         address _management,
@@ -45,12 +45,12 @@ contract CurveLenderFactory {
     function newCurveLender(
         address _asset,
         string memory _name, 
-        address _vault, 
-        address _staking
+        address _convexDepositContract, 
+        uint256 _PID
     ) external onlyManagement returns (address) {
         // We need to use the custom interface with the
         // tokenized strategies available setters.
-        IStrategyInterface newStrategy = IStrategyInterface(address(new CurveLender(_asset, _name, _vault, _staking, GOV)));
+        IStrategyInterface newStrategy = IStrategyInterface(address(new CurveLender(_asset, _name, _convexDepositContract, _PID, GOV)));
         newStrategy.setPerformanceFeeRecipient(performanceFeeRecipient);
 
         newStrategy.setKeeper(keeper);
@@ -61,18 +61,18 @@ contract CurveLenderFactory {
 
         emit NewCurveLender(address(newStrategy), _asset);
 
-        marketVaultToStrategy[_vault] = address(newStrategy);
+        PIDtoStrategy[_PID] = address(newStrategy);
 
         return address(newStrategy);
     }
 
     /**
      * @notice Retrieve the address of a strategy by the market vault
-     * @param _marketVault LP address
+     * @param _PID pool ID
      * @return strategy address
      */
-    function getStrategyByMarketVault(address _marketVault) external view returns (address) {
-        return marketVaultToStrategy[_marketVault];
+    function getStrategyByPID(uint256 _PID) external view returns (address) {
+        return PIDtoStrategy[_PID];
     }
 
     /**
@@ -80,13 +80,13 @@ contract CurveLenderFactory {
      * @param _strategy strategy address
      */
     function isDeployedStrategy(address _strategy) external view returns (bool) {
-        address _marketVault = IStrategyInterface(_strategy).vault();
-        return marketVaultToStrategy[_marketVault] == _strategy;
+        uint256 _PID = IStrategyInterface(_strategy).PID();
+        return PIDtoStrategy[_PID] == _strategy;
     }
 
 
-    function setStrategyByMarketVault(address _marketVault, address _strategy) external onlyManagement {
-        marketVaultToStrategy[_marketVault] = _strategy;
+    function setStrategyByPID(uint256 _PID, address _strategy) external onlyManagement {
+        PIDtoStrategy[_PID] = _strategy;
     }
 
     /**
