@@ -7,11 +7,13 @@ interface IStrategy {
     function curveLendVault() external view returns (address);
     function PID() external view returns (uint256);
     function totalAssets() external view returns (uint256);
+    function stakedBalance() external view returns (uint256);
 }
 
 interface ICurveVault {
     function controller() external view returns (address);
     function totalAssets() external view returns (uint256);
+    function pricePerShare() external view returns(uint256);
 }
 
 interface IChainlink {
@@ -47,11 +49,13 @@ contract StrategyAprOracle is AprOracleBase {
         uint256 length = tokens.length;
         require(length == rates.length, "length mismatch");
 
+        address curveLendVault = strategy.curveLendVault();
         uint256 totalApr;
         address currentReward;
         int256 priceReward;
         int256 priceCRVUSD;
         uint256 apr;
+        uint256 depositAmount = 1e18;
         for (uint256 i; i < length; ++i) {
             currentReward = tokens[i];
             if (currentReward == CRV) {
@@ -59,7 +63,8 @@ contract StrategyAprOracle is AprOracleBase {
                 console.log("priceReward CRV: ", uint256(priceReward));
                 (, priceCRVUSD, , , ) = IChainlink(chainlinkCRVUSDvsUSD).latestRoundData();
                 console.log("priceCRVUSD: ", uint256(priceCRVUSD));
-                apr = IPoolUtilities(poolUtilities).apr(rates[i], uint256(priceReward), uint256(priceCRVUSD));
+                console.log("rate: ", rates[i]);
+                apr = IPoolUtilities(poolUtilities).apr(rates[i], uint256(priceReward) * 1e10, ICurveVault(curveLendVault).pricePerShare());
                 console.log("apr: ", apr);
                 totalApr += apr;
             } else if (currentReward == CVX) {
@@ -67,7 +72,8 @@ contract StrategyAprOracle is AprOracleBase {
                 console.log("priceReward CVX: ", uint256(priceReward));
                 (, priceCRVUSD, , , ) = IChainlink(chainlinkCRVUSDvsUSD).latestRoundData();
                 console.log("priceCRVUSD: ", uint256(priceCRVUSD));
-                apr = IPoolUtilities(poolUtilities).apr(rates[i], uint256(priceReward), uint256(priceCRVUSD));
+                console.log("rate: ", rates[i]);
+                apr = IPoolUtilities(poolUtilities).apr(rates[i], uint256(priceReward) * 1e10, ICurveVault(curveLendVault).pricePerShare());
                 console.log("apr: ", apr);
                 totalApr += apr;
             } else {
