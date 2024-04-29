@@ -27,6 +27,7 @@ contract CurveLenderFactory {
         performanceFeeRecipient = _peformanceFeeRecipient;
         keeper = _keeper;
         emergencyAdmin = _emergencyAdmin;
+        require(_GOV != address(0));
         GOV = _GOV;
     }
 

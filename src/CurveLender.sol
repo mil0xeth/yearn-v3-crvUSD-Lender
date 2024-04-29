@@ -8,10 +8,10 @@ import {TradeFactorySwapper} from "@periphery/swappers/TradeFactorySwapper.sol";
 interface ICurveLend {
     function asset() external view returns (address);
     function deposit(uint256) external returns (uint256);
-    function withdraw(uint256) external;
     function redeem(uint256) external;
     function maxDeposit(address) external view returns (uint256);
     function maxWithdraw(address) external view returns (uint256);
+    function maxRedeem(address) external view returns (uint256);
     function convertToShares(uint256) external view returns (uint256);
     function convertToAssets(uint256) external view returns (uint256);
     }
@@ -42,6 +42,7 @@ contract CurveLender is BaseHealthCheck, TradeFactorySwapper {
         PID = _PID;
         (curveLendVault, , , convexRewardsContract, , ) = IConvexDeposit(_convexDepositContract).poolInfo(_PID);
         GOV = _GOV;
+        require(_asset == ICurveLend(curveLendVault).asset(), "wrong PID");
 
         asset.safeApprove(curveLendVault, type(uint256).max);
         ERC20(curveLendVault).safeApprove(_convexDepositContract, type(uint256).max);
@@ -79,7 +80,7 @@ contract CurveLender is BaseHealthCheck, TradeFactorySwapper {
         return ERC20(convexRewardsContract).balanceOf(address(this));
     }
 
-    function claimableBalance() public view returns (uint256) {
+    function claimableBalance() external view returns (uint256) {
         return IConvexRewards(convexRewardsContract).earned(address(this));
     }
 
@@ -95,6 +96,7 @@ contract CurveLender is BaseHealthCheck, TradeFactorySwapper {
      * @param _token Address of token to add.
      */
     function addToken(address _token) external onlyManagement {
+        _requirementsForToken(_token);
         _addToken(_token, address(asset));
     }
 
@@ -108,7 +110,7 @@ contract CurveLender is BaseHealthCheck, TradeFactorySwapper {
     }
 
     /*//////////////////////////////////////////////////////////////
-                GOVERNANCE:
+                EMERGENCY & GOVERNANCE:
     //////////////////////////////////////////////////////////////*/
 
     /**
@@ -120,11 +122,21 @@ contract CurveLender is BaseHealthCheck, TradeFactorySwapper {
         _setTradeFactory(_tradeFactory, address(asset));
     }
 
+    function _emergencyWithdraw(uint256 _amount) internal override {
+        _freeFunds(_amount);
+    }
+
     /// @notice Sweep of non-asset ERC20 tokens to governance (onlyGovernance)
     /// @param _token The ERC20 token to sweep
     function sweep(address _token) external onlyGovernance {
-        require(_token != address(asset), "!asset");
+        _requirementsForToken(_token);
         ERC20(_token).safeTransfer(GOV, ERC20(_token).balanceOf(address(this)));
+    }
+
+    function _requirementsForToken(address _token) internal view {
+        require(_token != address(asset), "!asset");
+        require(_token != curveLendVault, "!curveLendVault");
+        require(_token != convexRewardsContract, "!convexRewardsContract");
     }
 
     modifier onlyGovernance() {
