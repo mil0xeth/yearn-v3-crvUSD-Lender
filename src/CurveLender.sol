@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 pragma solidity 0.8.18;
 
-import {Base4626Compounder, ERC20, SafeERC20, Math, IStrategy} from "@periphery/Bases/4626Compounder/Base4626Compounder.sol";
+import {Base4626Compounder, ERC20, SafeERC20, IStrategy} from "@periphery/Bases/4626Compounder/Base4626Compounder.sol";
 import {TradeFactorySwapper} from "@periphery/swappers/TradeFactorySwapper.sol";
 import {IConvexDeposit, IConvexRewards} from "./interfaces/ConvexInterfaces.sol";
 
@@ -67,11 +67,7 @@ contract CurveLender is Base4626Compounder, TradeFactorySwapper {
     }
 
     function vaultsMaxWithdraw() public view override returns (uint256) {
-        return
-            Math.min(
-                vault.convertToAssets(vault.maxRedeem(gauge)),
-                vault.totalAssets()
-            );
+        return vault.convertToAssets(vault.maxRedeem(gauge));
     }
 
     /* ========== TRADE FACTORY FUNCTIONS ========== */
