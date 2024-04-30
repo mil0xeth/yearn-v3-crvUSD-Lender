@@ -1,93 +1,79 @@
 // SPDX-License-Identifier: AGPL-3.0
 pragma solidity 0.8.18;
 
-import {BaseHealthCheck, ERC20} from "@periphery/Bases/HealthCheck/BaseHealthCheck.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Base4626Compounder, ERC20, SafeERC20, IStrategy} from "@periphery/Bases/4626Compounder/Base4626Compounder.sol";
 import {TradeFactorySwapper} from "@periphery/swappers/TradeFactorySwapper.sol";
+import {IConvexDeposit, IConvexRewards} from "./interfaces/ConvexInterfaces.sol";
 
-interface ICurveLend {
-    function asset() external view returns (address);
-    function deposit(uint256) external returns (uint256);
-    function redeem(uint256) external;
-    function maxDeposit(address) external view returns (uint256);
-    function maxWithdraw(address) external view returns (uint256);
-    function maxRedeem(address) external view returns (uint256);
-    function convertToShares(uint256) external view returns (uint256);
-    function convertToAssets(uint256) external view returns (uint256);
-    }
-
-interface IConvexDeposit {
-    function poolInfo(uint256 _PID) external view returns (address, address, address, address, address, bool);
-    function deposit(uint256 _PID, uint256 _amount, bool _stake) external;
-    function withdraw(uint256 _PID, uint256 _amount) external;
-    }
-
-interface IConvexRewards {
-    function earned(address) external view returns (uint256);
-    function getReward(address, bool) external;
-    function withdrawAndUnwrap(uint256, bool) external;
-    }
-
-contract CurveLender is BaseHealthCheck, TradeFactorySwapper {
+contract CurveLender is Base4626Compounder, TradeFactorySwapper {
     using SafeERC20 for ERC20;
 
-    address public immutable curveLendVault;
-    address public immutable convexDepositContract;
-    address public immutable convexRewardsContract;
-    uint256 public immutable PID;
-    address public immutable GOV;
+    IConvexDeposit public constant booster =
+        IConvexDeposit(0xF403C135812408BFbE8713b5A23a04b3D48AAE31); // convex deposit contract
+    IConvexRewards public immutable convexRewardsContract; // Convex rewards contract specific to this asset
+    address public immutable gauge; // use to check free liquidity in lending pool
+    uint256 public immutable PID; // pool ID, specific to each convex pool
+    address public immutable GOV; //yearn governance
 
-    constructor(address _asset, string memory _name, address _convexDepositContract, uint256 _PID, address _GOV) BaseHealthCheck(_asset, _name) {
-        convexDepositContract = _convexDepositContract;
+    /**
+     * @dev Vault must match lp_token() for the staking pool.
+     * @param _asset Underlying asset to use for this strategy.
+     * @param _name Name to use for this strategy.
+     * @param _vault Vault token for our asset.
+     */
+    constructor(
+        address _asset,
+        string memory _name,
+        address _vault,
+        uint256 _PID,
+        address _GOV
+    ) Base4626Compounder(_asset, _name, _vault) {
+        (
+            address _curveVault,
+            ,
+            address _gauge,
+            address _convexRewardsContract,
+            ,
+
+        ) = booster.poolInfo(_PID);
+        require(_asset == IStrategy(_curveVault).asset(), "wrong PID");
+        gauge = _gauge;
+        convexRewardsContract = IConvexRewards(_convexRewardsContract);
+
         PID = _PID;
-        (curveLendVault, , , convexRewardsContract, , ) = IConvexDeposit(_convexDepositContract).poolInfo(_PID);
         GOV = _GOV;
-        require(_asset == ICurveLend(curveLendVault).asset(), "wrong PID");
-
-        asset.safeApprove(curveLendVault, type(uint256).max);
-        ERC20(curveLendVault).safeApprove(_convexDepositContract, type(uint256).max);
-    }
-
-    function _deployFunds(uint256 _amount) internal override {
-        IConvexDeposit(convexDepositContract).deposit(PID, ICurveLend(curveLendVault).deposit(_amount), true); // deposit & stake
-    }
-
-    function _freeFunds(uint256 _amount) internal override {
-        uint256 shares = ICurveLend(curveLendVault).convertToShares(_amount);
-        IConvexRewards(convexRewardsContract).withdrawAndUnwrap(shares, true);
-        ICurveLend(curveLendVault).redeem(shares); // redeem
-    }
-
-    function _harvestAndReport()
-        internal
-        override
-        returns (uint256 _totalAssets)
-    {
-        if (!TokenizedStrategy.isShutdown()) {
-            uint256 assetBalance = asset.balanceOf(address(this));
-            if (assetBalance > 0) {
-                _deployFunds(assetBalance);
-            }
-        }
-        _totalAssets = asset.balanceOf(address(this)) + ICurveLend(curveLendVault).convertToAssets(stakedBalance());
-    }
-
-    function availableDepositLimit(address /*_owner*/) public view virtual override returns (uint256) {
-        return ICurveLend(curveLendVault).maxDeposit(address(this));
-    }
-
-    function stakedBalance() public view returns (uint256) {
-        return ERC20(convexRewardsContract).balanceOf(address(this));
+        ERC20(_vault).safeApprove(address(booster), type(uint256).max);
     }
 
     function claimableBalance() external view returns (uint256) {
-        return IConvexRewards(convexRewardsContract).earned(address(this));
+        return convexRewardsContract.earned(address(this));
+    }
+
+    /* ========== BASE4626 FUNCTIONS ========== */
+
+    /**
+     * @notice Balance of vault tokens staked in the staking contract
+     */
+    function balanceOfStake() public view override returns (uint256) {
+        return convexRewardsContract.balanceOf(address(this));
+    }
+
+    function _stake() internal override {
+        booster.deposit(PID, balanceOfVault(), true);
+    }
+
+    function _unStake(uint256 _amount) internal override {
+        convexRewardsContract.withdrawAndUnwrap(_amount, false);
+    }
+
+    function vaultsMaxWithdraw() public view override returns (uint256) {
+        return vault.convertToAssets(vault.maxRedeem(gauge));
     }
 
     /* ========== TRADE FACTORY FUNCTIONS ========== */
 
     function _claimRewards() internal override {
-        IConvexRewards(convexRewardsContract).getReward(address(this), true);
+        convexRewardsContract.getReward(address(this), true);
     }
 
     /**
@@ -96,7 +82,7 @@ contract CurveLender is BaseHealthCheck, TradeFactorySwapper {
      * @param _token Address of token to add.
      */
     function addToken(address _token) external onlyManagement {
-        _requirementsForToken(_token);
+        _checkIfProtected(_token);
         _addToken(_token, address(asset));
     }
 
@@ -109,9 +95,37 @@ contract CurveLender is BaseHealthCheck, TradeFactorySwapper {
         _removeToken(_token, address(asset));
     }
 
-    /*//////////////////////////////////////////////////////////////
-                EMERGENCY & GOVERNANCE:
-    //////////////////////////////////////////////////////////////*/
+    /**
+     * @notice Check for tokens that shouldn't be moved (swept or swapped).
+     * @dev Use this for all tokens/tokenized positions this contract
+     * manages on a *persistent* basis (e.g. not just for swapping back to
+     * asset ephemerally).
+     */
+    function protectedTokens() public view returns (address[] memory) {
+        address[] memory protected = new address[](3);
+        protected[0] = address(convexRewardsContract); // convex wrapped token
+        protected[1] = address(vault); // curve lend token
+        protected[2] = address(asset);
+        return protected;
+    }
+
+    // checks if a given token is on our protectedTokens list
+    function _checkIfProtected(address _token) internal view {
+        address[] memory _protectedTokens = protectedTokens();
+        for (uint256 i; i < _protectedTokens.length; ++i) {
+            require(_token != _protectedTokens[i], "!protected");
+        }
+    }
+
+    /* ========== GOV-ONLY FUNCTIONS ========== */
+
+    /**
+     * @dev Require that the call is coming from governance.
+     */
+    modifier onlyGovernance() {
+        require(msg.sender == GOV, "!gov");
+        _;
+    }
 
     /**
      * @notice Use to update our trade factory.
@@ -122,25 +136,10 @@ contract CurveLender is BaseHealthCheck, TradeFactorySwapper {
         _setTradeFactory(_tradeFactory, address(asset));
     }
 
-    function _emergencyWithdraw(uint256 _amount) internal override {
-        _freeFunds(_amount);
-    }
-
     /// @notice Sweep of non-asset ERC20 tokens to governance (onlyGovernance)
     /// @param _token The ERC20 token to sweep
     function sweep(address _token) external onlyGovernance {
-        _requirementsForToken(_token);
+        _checkIfProtected(_token);
         ERC20(_token).safeTransfer(GOV, ERC20(_token).balanceOf(address(this)));
-    }
-
-    function _requirementsForToken(address _token) internal view {
-        require(_token != address(asset), "!asset");
-        require(_token != curveLendVault, "!curveLendVault");
-        require(_token != convexRewardsContract, "!convexRewardsContract");
-    }
-
-    modifier onlyGovernance() {
-        require(msg.sender == GOV, "!gov");
-        _;
     }
 }
