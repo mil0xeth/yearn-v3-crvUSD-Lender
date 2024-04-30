@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0
 pragma solidity 0.8.18;
 
-import {Base4626Compounder, ERC20, SafeERC20} from "@periphery/Bases/4626Compounder/Base4626Compounder.sol";
+import {Base4626Compounder, ERC20, SafeERC20, Math} from "@periphery/Bases/4626Compounder/Base4626Compounder.sol";
 import {TradeFactorySwapper} from "@periphery/swappers/TradeFactorySwapper.sol";
-
 import {IStaking} from "./interfaces/CurveInterfaces.sol";
 
 contract CurveLender is Base4626Compounder, TradeFactorySwapper {
@@ -19,9 +18,13 @@ contract CurveLender is Base4626Compounder, TradeFactorySwapper {
      * @param _vault ERC4626 vault token to use.
      * @param _staking Staking pool to use.
      */
-    constructor(address _asset, string memory _name, address _vault, address _staking, address _GOV)
-        Base4626Compounder(_asset, _name, _vault)
-    {
+    constructor(
+        address _asset,
+        string memory _name,
+        address _vault,
+        address _staking,
+        address _GOV
+    ) Base4626Compounder(_asset, _name, _vault) {
         staking = IStaking(_staking);
         require(_vault == staking.lp_token(), "token mismatch");
         GOV = _GOV;
@@ -46,11 +49,17 @@ contract CurveLender is Base4626Compounder, TradeFactorySwapper {
         staking.withdraw(_amount);
     }
 
-    function vaultsMaxWithdraw() public view virtual override returns (uint256) {
-        return vault.convertToAssets(vault.maxRedeem(address(staking)));
+    function vaultsMaxWithdraw() public view override returns (uint256) {
+        return
+            Math.min(
+                vault.convertToAssets(vault.maxRedeem(address(staking))),
+                vault.totalAssets()
+            );
     }
 
-    function availableDepositLimit(address /*_owner*/) public view virtual override returns (uint256) {
+    function availableDepositLimit(
+        address /*_owner*/
+    ) public view override returns (uint256) {
         return vault.maxDeposit(address(this));
     }
 
@@ -66,6 +75,7 @@ contract CurveLender is Base4626Compounder, TradeFactorySwapper {
      * @param _token Address of token to add.
      */
     function addToken(address _token) external onlyManagement {
+        _checkIfProtected(_token);
         _addToken(_token, address(asset));
     }
 
@@ -78,9 +88,37 @@ contract CurveLender is Base4626Compounder, TradeFactorySwapper {
         _removeToken(_token, address(asset));
     }
 
-    /*//////////////////////////////////////////////////////////////
-                GOVERNANCE:
-    //////////////////////////////////////////////////////////////*/
+    /**
+     * @notice Check for tokens that shouldn't be moved (swept or swapped).
+     * @dev Use this for all tokens/tokenized positions this contract
+     * manages on a *persistent* basis (e.g. not just for swapping back to
+     * asset ephemerally).
+     */
+    function protectedTokens() public view returns (address[] memory) {
+        address[] memory protected = new address[](3);
+        protected[0] = address(staking);
+        protected[1] = address(vault);
+        protected[2] = address(asset);
+        return protected;
+    }
+
+    // checks if a given token is on our protectedTokens list
+    function _checkIfProtected(address _token) internal view {
+        address[] memory _protectedTokens = protectedTokens();
+        for (uint256 i; i < _protectedTokens.length; ++i) {
+            require(_token != _protectedTokens[i], "!protected");
+        }
+    }
+
+    /* ========== GOV-ONLY FUNCTIONS ========== */
+
+    /**
+     * @dev Require that the call is coming from governance.
+     */
+    modifier onlyGovernance() {
+        require(msg.sender == GOV, "!gov");
+        _;
+    }
 
     /**
      * @notice Use to update our trade factory.
@@ -94,12 +132,7 @@ contract CurveLender is Base4626Compounder, TradeFactorySwapper {
     /// @notice Sweep of non-asset ERC20 tokens to governance (onlyGovernance)
     /// @param _token The ERC20 token to sweep
     function sweep(address _token) external onlyGovernance {
-        require(_token != address(asset), "!asset");
+        _checkIfProtected(_token);
         ERC20(_token).safeTransfer(GOV, ERC20(_token).balanceOf(address(this)));
-    }
-
-    modifier onlyGovernance() {
-        require(msg.sender == GOV, "!gov");
-        _;
     }
 }

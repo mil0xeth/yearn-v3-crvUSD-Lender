@@ -5,5 +5,5 @@ import {IStrategy} from "@tokenized-strategy/interfaces/IStrategy.sol";
 
 interface IStrategyInterface is IStrategy {
     function setProfitLimitRatio(uint256) external;
-    function vault() view external returns (address);
+    function vault() external view returns (address);
 }

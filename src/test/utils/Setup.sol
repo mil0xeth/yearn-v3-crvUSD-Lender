@@ -76,8 +76,6 @@ contract Setup is ExtendedTest, IEvents {
         //curveLendVault = 0xCeA18a8752bb7e7817F9AE7565328FE415C0f2cA; // Mainnet CRV/crvUSD
         //gauge = 0x49887dF6fE905663CDB46c616BfBfBB50e85a265;  //CRV/crvUSD
 
-
-
         GOV = management;
         emergencyAdmin = management;
 
@@ -88,7 +86,14 @@ contract Setup is ExtendedTest, IEvents {
 
         // Deploy strategy and set variables
         vm.prank(management);
-        strategy = IStrategyInterface(strategyFactory.newCurveLender(address(asset), "Strategy", curveLendVault, gauge));
+        strategy = IStrategyInterface(
+            strategyFactory.newCurveLender(
+                address(asset),
+                "Strategy",
+                curveLendVault,
+                gauge
+            )
+        );
         setUpStrategy();
 
         // Deploy strategy and set variables

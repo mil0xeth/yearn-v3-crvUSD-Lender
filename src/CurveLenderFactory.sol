@@ -44,13 +44,15 @@ contract CurveLenderFactory {
      */
     function newCurveLender(
         address _asset,
-        string memory _name, 
-        address _vault, 
+        string memory _name,
+        address _vault,
         address _staking
     ) external onlyManagement returns (address) {
         // We need to use the custom interface with the
         // tokenized strategies available setters.
-        IStrategyInterface newStrategy = IStrategyInterface(address(new CurveLender(_asset, _name, _vault, _staking, GOV)));
+        IStrategyInterface newStrategy = IStrategyInterface(
+            address(new CurveLender(_asset, _name, _vault, _staking, GOV))
+        );
         newStrategy.setPerformanceFeeRecipient(performanceFeeRecipient);
 
         newStrategy.setKeeper(keeper);
@@ -71,7 +73,9 @@ contract CurveLenderFactory {
      * @param _marketVault LP address
      * @return strategy address
      */
-    function getStrategyByMarketVault(address _marketVault) external view returns (address) {
+    function getStrategyByMarketVault(
+        address _marketVault
+    ) external view returns (address) {
         return marketVaultToStrategy[_marketVault];
     }
 
@@ -79,13 +83,17 @@ contract CurveLenderFactory {
      * @notice Check if a strategy has been deployed by this Factory
      * @param _strategy strategy address
      */
-    function isDeployedStrategy(address _strategy) external view returns (bool) {
+    function isDeployedStrategy(
+        address _strategy
+    ) external view returns (bool) {
         address _marketVault = IStrategyInterface(_strategy).vault();
         return marketVaultToStrategy[_marketVault] == _strategy;
     }
 
-
-    function setStrategyByMarketVault(address _marketVault, address _strategy) external onlyManagement {
+    function setStrategyByMarketVault(
+        address _marketVault,
+        address _strategy
+    ) external onlyManagement {
         marketVaultToStrategy[_marketVault] = _strategy;
     }
 
