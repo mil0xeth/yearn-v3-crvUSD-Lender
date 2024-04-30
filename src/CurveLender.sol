@@ -63,7 +63,7 @@ contract CurveLender is Base4626Compounder, TradeFactorySwapper {
     }
 
     function _unStake(uint256 _amount) internal virtual override {
-        convexRewardsContract.withdrawAndUnwrap(_amount, true);
+        convexRewardsContract.withdrawAndUnwrap(_amount, false);
     }
 
     function vaultsMaxWithdraw()
@@ -119,8 +119,8 @@ contract CurveLender is Base4626Compounder, TradeFactorySwapper {
      */
     function protectedTokens() public view returns (address[] memory) {
         address[] memory protected = new address[](3);
-        protected[0] = address(convexRewardsContract);
-        protected[1] = address(vault);
+        protected[0] = address(convexRewardsContract); // convex wrapped token
+        protected[1] = address(vault); // curve lend token
         protected[2] = address(asset);
         return protected;
     }
