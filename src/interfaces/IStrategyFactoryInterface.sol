@@ -4,8 +4,8 @@ pragma solidity 0.8.18;
 interface IStrategyFactoryInterface {
     function newCurveLender(
         address _asset,
-        string memory _name, 
-        address _vault, 
+        string memory _name,
+        address _vault,
         address _staking
     ) external returns (address);
 
