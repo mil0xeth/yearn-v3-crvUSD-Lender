@@ -37,7 +37,7 @@ contract CurveLender is Base4626Compounder, TradeFactorySwapper {
     /**
      * @notice Balance of vault tokens staked in the staking contract
      */
-    function balanceOfStake() public view virtual override returns (uint256) {
+    function balanceOfStake() public view override returns (uint256) {
         return staking.balanceOf(address(this));
     }
 
@@ -45,7 +45,7 @@ contract CurveLender is Base4626Compounder, TradeFactorySwapper {
         staking.deposit(balanceOfVault());
     }
 
-    function _unStake(uint256 _amount) internal virtual override {
+    function _unStake(uint256 _amount) internal override {
         staking.withdraw(_amount);
     }
 
