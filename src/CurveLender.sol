@@ -66,24 +66,12 @@ contract CurveLender is Base4626Compounder, TradeFactorySwapper {
         convexRewardsContract.withdrawAndUnwrap(_amount, false);
     }
 
-    function vaultsMaxWithdraw()
-        public
-        view
-        virtual
-        override
-        returns (uint256)
-    {
+    function vaultsMaxWithdraw() public view override returns (uint256) {
         return
             Math.min(
                 vault.convertToAssets(vault.maxRedeem(gauge)),
                 vault.totalAssets()
             );
-    }
-
-    function availableDepositLimit(
-        address /*_owner*/
-    ) public view virtual override returns (uint256) {
-        return vault.maxDeposit(address(this));
     }
 
     /* ========== TRADE FACTORY FUNCTIONS ========== */
