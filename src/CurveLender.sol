@@ -57,12 +57,6 @@ contract CurveLender is Base4626Compounder, TradeFactorySwapper {
             );
     }
 
-    function availableDepositLimit(
-        address /*_owner*/
-    ) public view override returns (uint256) {
-        return vault.maxDeposit(address(this));
-    }
-
     /* ========== TRADE FACTORY FUNCTIONS ========== */
 
     function _claimRewards() internal override {
