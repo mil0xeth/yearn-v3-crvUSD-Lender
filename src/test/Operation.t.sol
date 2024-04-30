@@ -161,5 +161,4 @@ contract OperationTest is Setup {
             "!perf fee out"
         );
     }
-
 }

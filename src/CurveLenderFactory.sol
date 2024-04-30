@@ -45,13 +45,15 @@ contract CurveLenderFactory {
      */
     function newCurveLender(
         address _asset,
-        string memory _name, 
-        address _convexDepositContract, 
+        string memory _name,
+        address _vault,
         uint256 _PID
     ) external onlyManagement returns (address) {
         // We need to use the custom interface with the
         // tokenized strategies available setters.
-        IStrategyInterface newStrategy = IStrategyInterface(address(new CurveLender(_asset, _name, _convexDepositContract, _PID, GOV)));
+        IStrategyInterface newStrategy = IStrategyInterface(
+            address(new CurveLender(_asset, _name, _vault, _PID, GOV))
+        );
         newStrategy.setPerformanceFeeRecipient(performanceFeeRecipient);
 
         newStrategy.setKeeper(keeper);
@@ -80,13 +82,17 @@ contract CurveLenderFactory {
      * @notice Check if a strategy has been deployed by this Factory
      * @param _strategy strategy address
      */
-    function isDeployedStrategy(address _strategy) external view returns (bool) {
+    function isDeployedStrategy(
+        address _strategy
+    ) external view returns (bool) {
         uint256 _PID = IStrategyInterface(_strategy).PID();
         return PIDtoStrategy[_PID] == _strategy;
     }
 
-
-    function setStrategyByPID(uint256 _PID, address _strategy) external onlyManagement {
+    function setStrategyByPID(
+        uint256 _PID,
+        address _strategy
+    ) external onlyManagement {
         PIDtoStrategy[_PID] = _strategy;
     }
 
