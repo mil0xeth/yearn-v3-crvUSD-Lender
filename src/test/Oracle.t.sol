@@ -10,10 +10,10 @@ contract OracleTest is Setup {
 
     function setUp() public override {
         super.setUp();
-        oracle = new StrategyAprOracle(0xEEf0C605546958c1f899b6fB336C20671f9cD49F, 0xCd627aA160A6fA45Eb793D19Ef54f5062F20f33f);
+        oracle = new StrategyAprOracle();
     }
 
-    function checkOracle(address _strategy, uint256 /*_delta*/) public view {
+    function checkOracle(address _strategy, uint256 _delta) public view {
         // Check set up
         // TODO: Add checks for the setup
 
@@ -23,8 +23,6 @@ contract OracleTest is Setup {
         assertGt(currentApr, 0, "ZERO");
         assertLt(currentApr, 1e18, "+100%");
 
-        // TODO: Uncomment to test the apr goes up and down based on debt changes
-        /**
         uint256 negativeDebtChangeApr = oracle.aprAfterDebtChange(_strategy, -int256(_delta));
 
         // The apr should go up if deposits go down
@@ -33,7 +31,6 @@ contract OracleTest is Setup {
         uint256 positiveDebtChangeApr = oracle.aprAfterDebtChange(_strategy, int256(_delta));
 
         assertGt(currentApr, positiveDebtChangeApr, "positive change");
-        */
 
         // TODO: Uncomment if there are setter functions to test.
         /**
@@ -60,7 +57,8 @@ contract OracleTest is Setup {
     }
 
     function test_displayAPR() public {
-        uint256 apr = oracle.aprAfterDebtChange(address(strategy), 0);
+        uint256 apr = oracle.aprAfterDebtChange(address(strategy), -3036308356363739477359717);
+        // uint256 apr = oracle.aprAfterDebtChange(address(strategy), 0);
         console.log("------- TOTAL APR: ", apr);
     }
 }
